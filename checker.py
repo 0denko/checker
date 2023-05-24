@@ -99,6 +99,8 @@ old_content = read_file(latest_article)                          #reads content 
 if os.path.isfile(old_md5_filename):                          #reads MD5 of the latest check
     with open(old_md5_filename, 'r') as f:
         old_md5 = f.read().strip()
+else:
+    old_md5 = ""
 
 
 with open(latest_article, 'w') as f:                             #saves the content to the new latest check
