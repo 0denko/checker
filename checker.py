@@ -30,14 +30,14 @@ def send_slack_notification(webhook_url, message):         #function to send not
     if response.status_code != 200:
         raise Exception(f"Error sending Slack notification: {response.text}")
 
-def read_file(filename):                                    #function to read a file in a local directory
+def read_file(filename):                                   #function to read a file in a local directory
     current_directory = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_directory, filename)
     with open(file_path, 'r') as file:
         content = file.read()
     return content
 
-def get_new_ps(old_content, content_to_save, header):      #compare old and new content to find new paragraphs
+def get_new_ps(old_content, content_to_save, header):      #funtion to compare old and new content to find new paragraphs and trigger slack notification
     slack_message = ''
     old_paragraphs = old_content.split('\n')
     new_paragraphs = content_to_save.split('\n')
@@ -49,85 +49,80 @@ def get_new_ps(old_content, content_to_save, header):      #compare old and new 
             slack_message = slack_message + '\n' + paragraph
         slack_message = slack_message + '\n' + 'More details here: ' + url
 # REMOVE COMMENT BELOW TO START SENDING THE SLACK NOTIFICATIONS
-#       send_slack_notification(slack_webhook_url,slack_message)
+#        send_slack_notification(slack_webhook_url,slack_message)
         print(slack_message)
     else:
         print("No new paragraphs found in the file.")
 
-if os.path.isfile(config_file):                             # Check for presence of the config file
-    with open(config_file, 'r') as file:
-        config_data = json.load(file)
-        url = config_data["url"]
-        div_class = config_data["div_class"]
-        slack_webhook_url = config_data["slack_webhook_url"]
-else:                                                       # File does not exist, prompt for information and write them to the config file
-    url = input("What web page do you want to track?\n")
-    div_class = input("What is the <div> class of the main content?\n")
-    slack_webhook_url = input("What is the slack web hook you want to use for this notification?\n")
+def main_function(url, div_class, slack_webhook_url):           #Main function
+    response = requests.get(url)                                #gets content of the URL
 
-    config_data = {
-        "url": url,
-        "div_class": div_class,
-        "slack_webhook_url": slack_webhook_url
-    }
+    if response.status_code == 200:                             #parses out main content and header of the page
+        soup = BeautifulSoup(response.content, 'html.parser')
+        main_content = soup.find('div', class_=div_class)
+        header_raw = soup.find('title')
+        header = header_raw.get_text()
+        content_to_save = main_content.get_text()
 
-    with open(config_file, 'w') as file:
-        json.dump(config_data, file)
-        print("Data written to", config_file)
+    file_name = re.sub(r'[^\w\-_.]', '', url)
+    old_md5_filename = file_name + '-md5.txt'                   #file name for the MD5 of the content received during latest check
+    latest_article = file_name + '-latest.txt'                  #content of the latest check
 
-response = requests.get(url)                                  #gets content of the URL
+    if os.path.isfile(latest_article):                          #check if the latest.txt file is there and make an empty one if not
+        print()
+    else:
+        with open(latest_article, 'w') as f:
+            f.write("")
 
-if response.status_code == 200:                               #parses out main content and header of the page
-    soup = BeautifulSoup(response.content, 'html.parser')
-    main_content = soup.find('div', class_=div_class)
-    header_raw = soup.find('title')
-    header = header_raw.get_text()
-    content_to_save = main_content.get_text()
+    old_content = read_file(latest_article)                     #reads content of the latest check
 
-file_name = re.sub(r'[^\w\-_.]', '', url)
-old_md5_filename = file_name + '-md5.txt'                     #file name for the MD5 of the content received during latest check
-latest_article = file_name + '-latest.txt'                       #content of the latest check
-
-if os.path.isfile(latest_article):                               #check if the latest.txt file is there and make an empty one if not
-    print()
-else:
-    with open(latest_article, 'w') as f:
-        f.write("")
-
-old_content = read_file(latest_article)                          #reads content of the latest check
-
-if os.path.isfile(old_md5_filename):                          #reads MD5 of the latest check
-    with open(old_md5_filename, 'r') as f:
-        old_md5 = f.read().strip()
-else:
-    old_md5 = ""
+    if os.path.isfile(old_md5_filename):                        #reads MD5 of the latest check
+        with open(old_md5_filename, 'r') as f:
+            old_md5 = f.read().strip()
+    else:
+        old_md5 = ""
 
 
-with open(latest_article, 'w') as f:                             #saves the content to the new latest check
-    f.write(content_to_save)
+    with open(latest_article, 'w') as f:                        #saves the content to the new latest check
+        f.write(content_to_save)
 
-with open(latest_article, 'rb') as f:                            #reads the new content and calculates md5 hash
-    content_bytes = f.read()
-    md5_hash = hashlib.md5(content_bytes).hexdigest()
+    with open(latest_article, 'rb') as f:                       #reads the new content and calculates md5 hash
+        content_bytes = f.read()
+        md5_hash = hashlib.md5(content_bytes).hexdigest()
 
-now = datetime.now()
-date_string = now.strftime("%Y-%m-%d")
+    now = datetime.now()
+    date_string = now.strftime("%Y-%m-%d")
 
-md5_filename = file_name + f'{date_string}-md5.txt'
-content_filename = file_name + f'{date_string}-whats-new.txt'
+    md5_filename = file_name + f'{date_string}-md5.txt'
+    content_filename = file_name + f'{date_string}-whats-new.txt'
 
-with open(md5_filename, 'w') as f:                            #saves current MD5 hash into a separate file with date
-    f.write(md5_hash)
+    with open(md5_filename, 'w') as f:                          #saves current MD5 hash into a separate file with date
+        f.write(md5_hash)
     
-with open(old_md5_filename, 'w') as f:                        #saves current MD5 hash into a latest md5 file
-    f.write(md5_hash)
+    with open(old_md5_filename, 'w') as f:                      #saves current MD5 hash into a latest md5 file
+        f.write(md5_hash)
 
-with open(content_filename, 'w') as f:                        #saves the content to a separate file with date
-    f.write(content_to_save)
+    with open(content_filename, 'w') as f:                      #saves the content to a separate file with date
+        f.write(content_to_save)
 
-if md5_hash == old_md5:                                       #compares new MD5 and old MD5 to check for content change
-    print("Article Didn't Change")
+    if md5_hash == old_md5:                                     #compares new MD5 and old MD5 to check for content change
+        print("Article Didn't Change")
 
-else:                                                         # Provide the filenames of the old and new files
-    get_new_ps(old_content, content_to_save, header)
-    print("Article Changed")
+    else:                                                       # Provide the filenames of the old and new files
+        get_new_ps(old_content, content_to_save, header)
+        print("Article Changed")
+
+if os.path.isfile(config_file):                                 # Check for presence of the config file
+    print("Found the JSON file")
+
+    with open(config_file, 'r') as file:                        # read the content of config file
+        config_data = json.load(file)
+
+    for item in config_data:                                    # for each line in the config file containing URL, div_class and slack hook we run the main function
+    # Access the variables
+        url = item["url"]
+        div_class = item["div_class"]
+        slack_webhook_url = item["slack_webhook_url"]
+        main_function(url, div_class, slack_webhook_url)
+else:                                                           #if no config file as to create one
+    print("Please create a checker.json file based on the format provided in the README.md")
